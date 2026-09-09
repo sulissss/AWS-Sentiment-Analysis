@@ -1,14 +1,62 @@
+import io
 import os
 from typing import Tuple, List, Optional
+import zipfile
+
 import joblib
 import nltk
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import numpy as np
 import pandas as pd
+import requests
+from requests.adapters import HTTPAdapter
 from scipy.sparse import hstack, csr_matrix
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+from urllib3.util.retry import Retry
+
+
+def download_nltk_resource(url: str, target_dir: str):
+    """
+    Downloads and extracts NLTK packages, ensuring that directory
+    layouts (like sentiment/vader_lexicon/vader_lexicon.txt) are created properly.
+    """
+    os.makedirs(target_dir, exist_ok=True)
+
+    session = requests.Session()
+    retries = Retry(
+        total=5,
+        backoff_factor=1,
+        status_forcelist=[500, 502, 503, 504],
+        raise_on_status=False
+    )
+    session.mount("https://", HTTPAdapter(max_retries=retries))
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+
+    response = session.get(url, headers=headers, timeout=30)
+    response.raise_for_status()
+
+    # 1. Save raw zip file
+    zip_filename = os.path.basename(url)
+    zip_filepath = os.path.join(target_dir, zip_filename)
+    with open(zip_filepath, "wb") as f:
+        f.write(response.content)
+
+    # 2. Extract into target_dir
+    with zipfile.ZipFile(io.BytesIO(response.content)) as z:
+        z.extractall(target_dir)
+
+    # 3. Specifically for vader_lexicon: ensure the nested folder exists
+    # NLTK expects 'sentiment/vader_lexicon/vader_lexicon.txt'
+    if "vader_lexicon" in zip_filename:
+        nested_dir = os.path.join(target_dir, "vader_lexicon")
+        os.makedirs(nested_dir, exist_ok=True)
+        with zipfile.ZipFile(io.BytesIO(response.content)) as z:
+            z.extractall(nested_dir)
 
 
 class StructuralFeatureExtractor:
@@ -21,11 +69,18 @@ class StructuralFeatureExtractor:
 
     @staticmethod
     def _ensure_nltk_resources():
-        """Ensure VADER lexicon is present."""
-        try:
-            nltk.data.find("sentiment/vader_lexicon.zip")
-        except LookupError:
-            nltk.download("vader_lexicon", quiet=True)
+        """Ensure VADER lexicon is present using requests."""
+        nltk_data_dir = os.environ.get("NLTK_DATA", os.path.expanduser("~/nltk_data"))
+        sentiment_dir = os.path.join(nltk_data_dir, "sentiment")
+        vader_txt = os.path.join(sentiment_dir, "vader_lexicon", "vader_lexicon.txt")
+
+        # Check directly if the physical file exists
+        if not os.path.exists(vader_txt):
+            print("Downloading VADER lexicon via requests...")
+            download_nltk_resource(
+                "https://raw.githubusercontent.com/nltk/nltk_data/gh-pages/packages/sentiment/vader_lexicon.zip",
+                sentiment_dir
+            )
 
     def extract_metadata(self, raw_series: pd.Series, clean_series: pd.Series) -> pd.DataFrame:
         """Computes statistical and lexical features from both raw and cleaned text."""
@@ -34,7 +89,7 @@ class StructuralFeatureExtractor:
         raw_str = raw_series.fillna("").astype(str)
         clean_str = clean_series.fillna("").astype(str)
 
-        # 1. Structural ratios from raw text (captures emotion lost during cleaning)
+        # 1. Structural ratios from raw text
         char_len = raw_str.str.len().replace(0, 1)
         features["upper_case_ratio"] = raw_str.apply(lambda x: sum(1 for c in x if c.isupper())) / char_len
         features["exclamation_count"] = raw_str.apply(lambda x: x.count("!"))
@@ -76,7 +131,6 @@ class RedditFeaturePipeline:
         self.test_size = test_size
         self.random_state = random_state
 
-        # Feature engines
         self.tfidf = TfidfVectorizer(
             max_features=max_tfidf_features,
             ngram_range=ngram_range,
@@ -95,11 +149,9 @@ class RedditFeaturePipeline:
         Splits data, extracts combined features, and prevents data leakage 
         by fitting scalers and vectorizers strictly on training data.
         """
-        # Ensure proper data types
         df[raw_text_col] = df[raw_text_col].fillna("").astype(str)
         df[clean_text_col] = df[clean_text_col].fillna("").astype(str)
 
-        # Stratified train/test split
         print(f"Splitting data ({1 - self.test_size:.0%} train, {self.test_size:.0%} test)...")
         train_df, test_df = train_test_split(
             df,
@@ -127,7 +179,7 @@ class RedditFeaturePipeline:
         X_train_final = hstack([X_train_tfidf, csr_matrix(X_train_meta_scaled)]).tocsr()
         X_test_final = hstack([X_test_tfidf, csr_matrix(X_test_meta_scaled)]).tocsr()
 
-        print(f"Feature engineering complete.")
+        print("Feature engineering complete.")
         print(f"Train matrix shape: {X_train_final.shape}")
         print(f"Test matrix shape:  {X_test_final.shape}")
 
@@ -141,18 +193,13 @@ class RedditFeaturePipeline:
         print(f"Transformers exported to directory: '{artifact_dir}/'")
 
 
-# =====================================================================
-# Execution Demonstration
-# =====================================================================
 if __name__ == "__main__":
-    input_file = "../data/cleaned_data.csv"
+    input_file = "data/cleaned_data.csv"
     output_dir = "artifacts"
 
-    # 1. Load the cleaned CSV
     print(f"Loading cleaned dataset from {input_file}...")
     df_clean = pd.read_csv(input_file)
 
-    # 2. Configure and run feature engineering
     pipeline = RedditFeaturePipeline(
         max_tfidf_features=5000,
         ngram_range=(1, 2),
@@ -167,7 +214,6 @@ if __name__ == "__main__":
         target_col="category"
     )
 
-    # 3. Save feature matrices and fitted transformers for the training script
     os.makedirs(output_dir, exist_ok=True)
     pipeline.save_artifacts(output_dir)
 

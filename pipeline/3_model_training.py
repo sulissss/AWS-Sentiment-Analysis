@@ -3,7 +3,7 @@ import os
 from typing import Any, Dict, Optional, Tuple
 import joblib
 import matplotlib
-matplotlib.use("Agg")  # Headless mode for terminal/CI
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import mlflow
 import mlflow.sklearn
@@ -15,7 +15,9 @@ from scipy.sparse import csr_matrix
 import seaborn as sns
 from sklearn.metrics import classification_report, confusion_matrix, f1_score
 from sklearn.svm import LinearSVC
+from dotenv import load_dotenv
 
+load_dotenv()
 
 class ModelEvaluator:
     """Evaluates classification performance and saves diagnostic plots and reports."""
@@ -121,7 +123,8 @@ class RedditSVCTrainer:
 
     def setup_mlflow(self):
         """Initializes or connects to an existing MLflow experiment."""
-        mlflow.set_tracking_uri("http://ec2-16-192-196-176.eu-north-1.compute.amazonaws.com:5000/")
+        tracking_uri = os.getenv("MLFLOW_TRACKING_URI")
+        mlflow.set_tracking_uri(tracking_uri)
         mlflow.set_experiment(self.experiment_name)
 
     def load_datasets(self) -> Tuple[csr_matrix, csr_matrix, pd.Series, pd.Series]:

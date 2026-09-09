@@ -1,4 +1,17 @@
-numpy==2.5.2
-pandas==3.0.5
-python-dateutil==2.9.0.post0
-six==1.17.0
+# numpy==2.5.2
+# pandas==3.0.5
+# python-dateutil==2.9.0.post0
+# six==1.17.0
+mlflow
+boto3
+scikit-learn
+pandas
+numpy
+scipy
+nltk
+emoji
+matplotlib
+seaborn
+wordcloud
+joblib
+python-dotenv
