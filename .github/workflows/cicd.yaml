@@ -59,12 +59,12 @@ jobs:
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
-  continuous-training:
-    name: Continuous Training & Tracking
+  continuous-deployment:
+    name: Continuous Deployment
     needs: build-and-push-ecr-image
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
-      - name: Checkout
+      - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Configure AWS credentials
@@ -82,15 +82,22 @@ jobs:
         run: |
           docker pull ${{ secrets.AWS_ECR_LOGIN_URI }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest
 
-      - name: Run Pipeline Container
+      - name: Stop and remove existing container if running
         run: |
-          docker run --rm \
+          docker ps -q --filter "name=sentiment-app" | grep -q . && docker stop sentiment-app && docker rm -fv sentiment-app || true
+
+      - name: Run Docker Container as Web Service
+        run: |
+          docker run -d \
+            -p 8080:5000 \
+            --name sentiment-app \
+            --restart unless-stopped \
             -e 'AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}' \
             -e 'AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}' \
             -e 'AWS_REGION=${{ secrets.AWS_REGION }}' \
             -e 'MLFLOW_TRACKING_URI=${{ secrets.MLFLOW_TRACKING_URI }}' \
             ${{ secrets.AWS_ECR_LOGIN_URI }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest
 
-      - name: Clean previous images and build cache
+      - name: Clean dangling images and build cache
         run: |
-          docker system prune -f
+          docker image prune -f

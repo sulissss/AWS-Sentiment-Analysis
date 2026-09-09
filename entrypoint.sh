@@ -1,13 +1,11 @@
 #!/bin/bash
-set -e # Abort immediately if any stage fails
+set -e
 
-echo ">>> [1/3] Step 1: Preprocessing & Exploratory Data Analysis..."
-python pipeline/1_preprocessing_eda.py
+# Build baseline artifacts if not present
+if [ ! -f "artifacts/models/linear_svc_model.joblib" ]; then
+    echo ">>> Running initial end-to-end training pipeline..."
+    python pipeline/execute_pipeline.py
+fi
 
-echo ">>> [2/3] Step 2: Feature Engineering & Extraction..."
-python pipeline/2_feature_engineering.py
-
-echo ">>> [3/3] Step 3: Model Training, Evaluation & MLflow Logging..."
-python pipeline/3_model_training.py
-
-echo ">>> [SUCCESS] Pipeline execution finished! Metrics and artifacts are live on MLflow."
+echo ">>> Launching Flask API..."
+exec python app.py

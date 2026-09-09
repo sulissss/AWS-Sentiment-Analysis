@@ -185,6 +185,21 @@ class RedditFeaturePipeline:
 
         return X_train_final, X_test_final, y_train, y_test
 
+    def transform(self, raw_series: pd.Series, clean_series: pd.Series) -> csr_matrix:
+        """Transforms unseen text using pre-fitted TF-IDF and structural feature scalers."""
+        raw_s = raw_series.fillna("").astype(str)
+        clean_s = clean_series.fillna("").astype(str)
+
+        # 1. Transform text using fitted TF-IDF
+        X_tfidf = self.tfidf.transform(clean_s)
+
+        # 2. Extract structural & VADER features and scale them
+        meta = self.structural_extractor.extract_metadata(raw_s, clean_s)
+        X_meta_scaled = self.structural_extractor.transform(meta)
+
+        # 3. Stack into final sparse matrix
+        return hstack([X_tfidf, csr_matrix(X_meta_scaled)]).tocsr()
+
     def save_artifacts(self, artifact_dir: str = "artifacts"):
         """Saves fitted transformers for model serving in production."""
         os.makedirs(artifact_dir, exist_ok=True)
