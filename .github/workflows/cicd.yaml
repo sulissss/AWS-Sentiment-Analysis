@@ -89,7 +89,7 @@ jobs:
       - name: Run Docker Container as Web Service
         run: |
           docker run -d \
-            -p 8080:5000 \
+            -p 8080:8080 \
             --name sentiment-app \
             --restart unless-stopped \
             -e 'AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}' \
